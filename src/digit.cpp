@@ -157,20 +157,29 @@ static void kiegyszam( char* time, int x, int y ) {
 }
 
 void kidigit( char* time1, double fogoido, double time2d, pic8* ppic8,
-					int kepxsize, int kepysize ) {
+					int kepxsize, int kepysize, int meretysize ) {
 
 	Ppic8 = ppic8;
 	Lookup = Plgr->idonegtomb;
 
 	double kepmeretx = kepxsize/640.0;
 	double kepmerety = kepysize/480.0;
+	// (port) The size of the digits (in split screen they would be half as tall
+	// as in one player, too small to read on the PSP's screen):
+	double helyy = kepmerety;
+	if( meretysize > kepysize )
+		kepmerety = meretysize/480.0;
 
 	//unsigned char szin1 = Plgr->idoszin1;
 	//unsigned char szin2 = Plgr->idoszin2;
 
 	int xtav = 28*kepmeretx;
 	int x = xtav;
-	int y = 420*kepmerety;
+	// (port) as far from the top of the view as in the original:
+	int y = kepysize - (480-420)*helyy;
+	int fugg = 16*kepmerety;
+	if( y + 2*fugg + 5 > kepysize - 2 )
+		y = kepysize - 2 - (2*fugg + 5);
 
 	Vonalvizhossz = 10*kepmerety,
 	Vonalfugghossz = 16*kepmerety;

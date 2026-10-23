@@ -537,6 +537,14 @@ long lejatszo( char* filenev ) {
 		   kulsoresz( Pmot2, &State->opciok2, &valt2, Prec2,
 					  &Viewtime2, eddig, &valt1.showkep, meghalt2 );
 
+		// (port) The palette before the first frame: each frame gets its colours
+		// when the GPU draws it, so the first frame would have shown the level
+		// in the menu's colours (the PC changed the colours of the screen, so
+		// the original set it after the first frame):
+		if( palmegnincs ) {
+			palmegnincs = 0;
+			Plgr->pal->set();
+		}
 		kirajzol320(
 				eddig,
 				&valt1, &valt2,
@@ -838,6 +846,14 @@ long lejatszo_r( char* filenev ) {
 		}
 
 		// KIRAJZOLAS:
+		// (port) The palette before the first frame: each frame gets its colours
+		// when the GPU draws it, so the first frame would have shown the level
+		// in the menu's colours (the PC changed the colours of the screen, so
+		// the original set it after the first frame):
+		if( palmegnincs ) {
+			palmegnincs = 0;
+			Plgr->pal->set();
+		}
 		kirajzol320(
 				eddig,
 				&valt1, &valt2,

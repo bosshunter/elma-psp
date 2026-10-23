@@ -44,7 +44,9 @@ public:
 	void setsisak( int x, int y );
 	void addszoveg_szeles( char* text, int x, int y );        // (port)
 	void addszoveg_szeles_kozep( char* text, int x, int y );  // (port)
-	void setsisak_szeles( int x, int y );                     // (port)
+	void setsisak_szeles( int x, int y );
+	void introszovegkeszit( void );                           // (port)
+	void kirajzolanimgpu( double ido, int elt );              // (port)                     // (port)
 	void clear( void );
 	void kirajzol( int nemkellgolyo = 0,
 				   pic8* rarakkep1 = NULL, pic8* rarakkep2 = NULL,

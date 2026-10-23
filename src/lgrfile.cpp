@@ -89,6 +89,24 @@ void loadlgrfile( char* nev ) {
 	if( Plgr )
 		delete Plgr;
 	Plgr = new lgrfile( Bentlgrnev );
+	// (port) The GPU's copies of the bike pictures, now rather than while the
+	// first frame of a level is drawn:
+	if( Plgr && Plgr->pal ) {
+		motkepek* mk[2] = { &Plgr->mkepek1, &Plgr->mkepek2 };
+		for( int m = 0; m < 2; m++ ) {
+			kiskep* k[13] = { mk[m]->pkisa, mk[m]->pkisb, mk[m]->pkisc, mk[m]->pkisd,
+							  mk[m]->pkisvezeto, mk[m]->pkiscomb, mk[m]->pkislabszar,
+							  mk[m]->pkiskerek, mk[m]->pkiselsorud, mk[m]->pkishatsorud,
+							  mk[m]->pkisalkar, mk[m]->pkisfelkar, mk[m]->pkisfej };
+			for( int i = 0; i < 13; i++ )
+				if( k[i] )
+					port_gpukep_elore( k[i]->tomb, k[i]->xsize, k[i]->ysize, k[i]->lyuk,
+									   Plgr->pal->pddpal );
+		}
+		if( Plgr->pkiszaszlo )
+			port_gpukep_elore( Plgr->pkiszaszlo->tomb, Plgr->pkiszaszlo->xsize,
+							   Plgr->pkiszaszlo->ysize, Plgr->pkiszaszlo->lyuk, Plgr->pal->pddpal );
+	}
 	return;
 }
 
@@ -461,6 +479,11 @@ lgrfile::lgrfile( char* lgrnev ) {
 	FILE* h = fopen( lgrtmp, "rb" );
 	if( !h )
 		uzenet( "Cannot find file:", lgrtmp );
+	// (port) A big buffer: fewer, larger reads from the memory stick (freed
+	// when the file is closed)
+	char* lgrpuffer = (char*)malloc( 64*1024 );
+	if( lgrpuffer )
+		setvbuf( h, lgrpuffer, _IOFBF, 64*1024 );
 
 	char tmp2[10];
 	if( fread( tmp2, 1, 5, h ) != 5 )
@@ -666,6 +689,8 @@ lgrfile::lgrfile( char* lgrnev ) {
 
 	fclose( h );
 	h = NULL;
+	if( lgrpuffer )
+		free( lgrpuffer ); // (port)
 	// Minden be van olvasva, file le van zarva:
 
 	// Most csinalunk egy kis ellenorzest:

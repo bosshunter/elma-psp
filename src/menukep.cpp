@@ -9,6 +9,7 @@ pic8* Buffgolyo = NULL;
 // 640x480 layout to the centre (MENUOFSX, MENUOFSY):
 static pic8* Menusima = NULL;
 static pic8* Menugolyo = NULL;
+static int Menuverzio = 0; // (port) changes whenever Menusima / Menugolyo are redrawn
 
 static pic8 *Kisnevsima = NULL, *Kisnevgolyo = NULL;
 abc8* Pmenuabc = NULL;
@@ -37,8 +38,22 @@ void initmenukep1( void ) {
 	// (port) The level editor's screen (848 wide in the wide editor build):
 	Buffsima = new pic8( PORT_EDX, PORT_EDY );
 	Buffgolyo = new pic8( PORT_EDX, PORT_EDY );
-	Menusima = new pic8( MENUSZEL, MENUMAG ); // (port)
-	Menugolyo = new pic8( MENUSZEL, MENUMAG );
+	// (port) In the memory the GPU draws the menus from (no second copy);
+	// with cpurajz.inf ordinary pictures, as in v1.0:
+	if( port_cpurajz() ) {
+		Menusima = new pic8( MENUSZEL, MENUMAG );
+		Menugolyo = new pic8( MENUSZEL, MENUMAG );
+	}
+	else for( int k = 0; k < 2; k++ ) {
+		unsigned char* tar = port_menukep( k );
+		unsigned char** sorok = new unsigned char*[MENUMAG];
+		for( int y = 0; y < MENUMAG; y++ )
+			sorok[y] = tar + y*MENUSZEL;
+		if( k == 0 )
+			Menusima = new pic8( MENUSZEL, MENUMAG, sorok );
+		else
+			Menugolyo = new pic8( MENUSZEL, MENUMAG, sorok );
+	}
 	Kisnevsima = new pic8( "szoveg1.pcx" ); //retusal( Kisnevsima );
 	Kisnevgolyo = new pic8( "szoveg2.pcx" ); //retusal( Kisnevgolyo );
 	Pmenuabc = new abc8( "menu.abc" );
@@ -206,6 +221,10 @@ static int Kezdoanimjon = 1;
 // pattern is anchored so that the centred 640x480 part looks exactly like the
 // original screen:
 static void hatterrajzol( void ) {
+	// (port) The GPU draws the menu from these pictures: it must have finished
+	// the last frame before they are drawn again (otherwise it showed a half
+	// drawn picture: flickering text, balls over the text):
+	port_gpuvar();
 	int tx = Kisnevsima->getxsize();
 	int ty = Kisnevsima->getysize();
 	// The original rows started at y = -47 (row 0), going down by ty:
@@ -247,6 +266,7 @@ void szoveglista::kirajzol( int nemkellgolyo,
 	if( !ervenyes && !Kezdoanimjon ) {
 		// Ujrarajzoljuk hatterkepeket:
 		ervenyes = 1;
+		Menuverzio++; // (port) the GPU copies the new pictures
 		hatterrajzol(); // (port)
 
 		// Rairjuk szovegeket vagy kepet:
@@ -306,32 +326,62 @@ void szoveglista::kirajzol( int nemkellgolyo,
 
 	leptetgolyo( dt ); // 12.0 volt regebben
 
-	blt8( Tmpbuffer, Menusima );
+	if( port_cpurajz() ) {
+		// (port) cpurajz.inf: the CPU draws the menu, as in v1.0
+		blt8( Tmpbuffer, Menusima );
+		for( int i = 0; i < Ngolyok; i++ ) {
+			if( nemkellgolyo || !State->animatedmenus )
+				break;
+			kirajzgolyo( Golyok[i].rmostani, Golyok[i].sug, Menugolyo );
+			vekt2 diff( Golyok[i].sug*0.5*cos( Golyok[i].alfamostani ),
+						Golyok[i].sug*0.5*sin( Golyok[i].alfamostani ) );
+			kirajzgolyo( Golyok[i].rmostani + diff,
+						Golyok[i].sug*0.25, Menusima );
+			kirajzgolyo( Golyok[i].rmostani - diff,
+						Golyok[i].sug*0.25, Menusima );
+		}
+		if( !nemkellgolyo ) {
+			pic8* sisakframe = NULL;
+			if( State->animatedmenus )
+				sisakframe = Psisak->getframe( ujido*0.0024 );
+			else
+				sisakframe = Psisak->getframebyindex( 25 );
+			blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
+		}
+		bltfront( Tmpbuffer );
+		return;
+	}
 
-	for( int i = 0; i < Ngolyok; i++ ) {
+	// (port) The GPU draws the menu: the background, the balls (discs cut out
+	// of the ball picture, and their two small "eyes" out of the plain one)
+	// and the helmet. The CPU only says where (was: the whole 848x480 picture
+	// composed in Tmpbuffer and copied to the screen every frame):
+	port_korong korongok[PORT_MAXKORONG];
+	int kdb = 0;
+	for( int i = 0; i < Ngolyok && kdb+3 <= PORT_MAXKORONG; i++ ) {
 		if( nemkellgolyo || !State->animatedmenus )
 			break;
-
-		kirajzgolyo( Golyok[i].rmostani, Golyok[i].sug, Menugolyo );
-
+		vekt2 g = Golyok[i].rmostani;
+		if( Nincsfal && (g.x < -500.0 || g.x > 1500.0 || g.y < -500.0 || g.y > 1500.0) )
+			continue;
 		vekt2 diff( Golyok[i].sug*0.5*cos( Golyok[i].alfamostani ),
 					Golyok[i].sug*0.5*sin( Golyok[i].alfamostani ) );
-		kirajzgolyo( Golyok[i].rmostani + diff,
-					Golyok[i].sug*0.25, Menusima );
-		kirajzgolyo( Golyok[i].rmostani - diff,
-					Golyok[i].sug*0.25, Menusima );
+		port_korong k1 = { (float)g.x, (float)g.y, (float)Golyok[i].sug, 1 };
+		port_korong k2 = { (float)(g.x+diff.x), (float)(g.y+diff.y), (float)(Golyok[i].sug*0.25), 0 };
+		port_korong k3 = { (float)(g.x-diff.x), (float)(g.y-diff.y), (float)(Golyok[i].sug*0.25), 0 };
+		korongok[kdb++] = k1;
+		korongok[kdb++] = k2;
+		korongok[kdb++] = k3;
 	}
+	pic8* sisakframe = NULL;
 	if( !nemkellgolyo ) {
-		pic8* sisakframe = NULL;
 		if( State->animatedmenus )
 			sisakframe = Psisak->getframe( ujido*0.0024 );
 		else
 			sisakframe = Psisak->getframebyindex( 25 );
-
-		blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
 	}
-
-	bltfront( Tmpbuffer );
+	port_gpumenu( Menusima, Menugolyo, Menuverzio, kdb, korongok,
+				  sisakframe, sisakx-20, sisaky-7 );
 }
 
 static int Elsokiranim = 1;
@@ -387,6 +437,79 @@ void szoveglista::kirajzolanimkocka( double ido, int elt ) {
 	blt8( Tmpbuffer, Pintro, MENUOFSX, MENUOFSY + (MENUMAG-elt) );
 }
 
+// (port) The intro on the GPU: the menu text goes into its own picture once
+// (with a colour the letters do not use as transparent), the GPU slides the
+// layers (was: all of it composed in Tmpbuffer by the CPU every frame).
+static pic8* Introszoveg = NULL;
+static int Introszovegatl = -1, Introszovegverzio = 0;
+
+void szoveglista::introszovegkeszit( void ) {
+	if( !Introszoveg )
+		Introszoveg = new pic8( MENUSZEL, MENUMAG );
+	pic8* masik = new pic8( MENUSZEL, MENUMAG );
+	Introszoveg->fillbox( 0 );
+	masik->fillbox( 255 );
+	for( int i = 0; i < elemszam; i++ ) {
+		Pmenuabc->write( Introszoveg, sorok[i].x, sorok[i].y, sorok[i].text );
+		Pmenuabc->write( masik, sorok[i].x, sorok[i].y, sorok[i].text );
+	}
+	// Where the two differ there is no letter; a colour no letter uses:
+	static unsigned char hasznalt[256];
+	memset( hasznalt, 0, sizeof( hasznalt ) );
+	for( int y = 0; y < MENUMAG; y++ ) {
+		unsigned char* a = Introszoveg->getptr( y );
+		unsigned char* b = masik->getptr( y );
+		for( int x = 0; x < MENUSZEL; x++ )
+			if( a[x] == b[x] )
+				hasznalt[a[x]] = 1;
+	}
+	int atl = -1;
+	for( int c = 0; c < 256 && atl < 0; c++ )
+		if( !hasznalt[c] )
+			atl = c;
+	if( atl < 0 )
+		atl = 0;
+	for( int y = 0; y < MENUMAG; y++ ) {
+		unsigned char* a = Introszoveg->getptr( y );
+		unsigned char* b = masik->getptr( y );
+		for( int x = 0; x < MENUSZEL; x++ )
+			if( a[x] != b[x] )
+				a[x] = (unsigned char)atl;
+	}
+	delete masik;
+	Introszovegatl = atl;
+	Introszovegverzio++;
+}
+
+void szoveglista::kirajzolanimgpu( double ido, int elt ) {
+	port_korong korongok[PORT_MAXKORONG];
+	int kdb = 0;
+	for( int i = 0; i < Ngolyok && kdb+3 <= PORT_MAXKORONG; i++ ) {
+		if( !State->animatedmenus )
+			break;
+		// As in kirajzolanimkocka: the balls come down with the text
+		vekt2 g = Golyok[i].rmostani;
+		g.y -= elt;
+		vekt2 diff( Golyok[i].sug*0.5*cos( Golyok[i].alfamostani ),
+					Golyok[i].sug*0.5*sin( Golyok[i].alfamostani ) );
+		port_korong k1 = { (float)g.x, (float)g.y, (float)Golyok[i].sug, 1 };
+		port_korong k2 = { (float)(g.x+diff.x), (float)(g.y+diff.y), (float)(Golyok[i].sug*0.25), 0 };
+		port_korong k3 = { (float)(g.x-diff.x), (float)(g.y-diff.y), (float)(Golyok[i].sug*0.25), 0 };
+		korongok[kdb++] = k1;
+		korongok[kdb++] = k2;
+		korongok[kdb++] = k3;
+	}
+	pic8* sisakframe = NULL;
+	if( State->animatedmenus && ido >= 0.0 )
+		sisakframe = Psisak->getframe( ido*0.0024 );
+	else
+		sisakframe = Psisak->getframebyindex( 25 );
+	port_gpuintro( elt, Introhatter, Introszoveg, Introszovegatl, Introszovegverzio,
+				   Pintro, MENUOFSX, MENUOFSY + (MENUMAG-elt) );
+	port_gpumenu( Menusima, Menugolyo, Menuverzio, kdb, korongok,
+				  sisakframe, sisakx-20, sisaky-7-elt );
+}
+
 // Hamis ha animnak mar vege:
 int szoveglista::kirajzolanim( double ido ) {
 	if( Elsokiranim ) {
@@ -400,6 +523,9 @@ int szoveglista::kirajzolanim( double ido ) {
 		// ne akadjon meg elso lejatszas kozben:
 		kirajzolanimkocka( -1.0, 0 );
 		// Idaig tartott minden elem kirakasa egyszer
+		Menuverzio++; // (port) the GPU copies the background pictures
+		if( !port_cpurajz() )
+			introszovegkeszit(); // (port)
 	}
 
 	ido -= Animkezdete;
@@ -409,11 +535,24 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	if( frame >= MENUMAG ) {
 		Scrolly1 = 0;
+		// (port) the intro's pictures are not needed any more:
+		port_gpuintro_vege();
+		if( Introszoveg ) {
+			delete Introszoveg;
+			Introszoveg = NULL;
+		}
 		return 0;
 	}
 
-	kirajzolanimkocka( ido, MENUMAG-frame );
-	bltfront( Tmpbuffer );
+	// (port) drawn by the GPU (was kirajzolanimkocka + bltfront; still so
+	// with cpurajz.inf, as in v1.0):
+	if( port_cpurajz() ) {
+		kirajzolanimkocka( ido, MENUMAG-frame );
+		bltfront( Tmpbuffer );
+		return 1;
+	}
+	Scrolly1 = MENUMAG-frame;
+	kirajzolanimgpu( ido, MENUMAG-frame );
 	return 1;
 }
 

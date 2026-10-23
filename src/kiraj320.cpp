@@ -7,6 +7,10 @@ int Kitoltestmegrakkezd = 10;
 
 static double Kepmeret = 1.0;
 
+// (port) The part of the screen buffer the current view is drawn into
+// (keszitbelsot x1, y1, x2, y2: y counts up from the bottom row):
+static int Nezx1 = 0, Nezy1 = 0, Nezx2 = 0, Nezy2 = 0;
+
 // (port) Gap between the two split screen views. Above the biggest view size
 // there are two more steps: 2 = the original gap, 1 = a thinner gap (the
 // default), 0 = no gap. At full size L (smaller) first widens the gap and
@@ -58,8 +62,40 @@ static void zoommeret( void ) {
 // The zoom is kept from level to level and saved in state.dat (zoomezred),
 // so it is the same after restarting the game. Called when a play or replay
 // starts:
+static int Zoommentett = -1; // the zoom as state.dat has it
+static int Meretmentett = -1, Reszmentett = -1; // the screen size, the gap
+
+// Called when a play or replay ends: a changed zoom or screen size is written
+// to state.dat now:
+void zoompalyavege( void ) {
+	if( !State || Zoommentett < 0 )
+		return;
+	State->kepmeretezred = (int)( Kepmeret*1000.0 + 0.5 );
+	State->reszint = Reszint;
+	if( State->zoomezred != Zoommentett || State->kepmeretezred != Meretmentett ||
+		State->reszint != Reszmentett ) {
+		State->save();
+		Zoommentett = State->zoomezred;
+		Meretmentett = State->kepmeretezred;
+		Reszmentett = State->reszint;
+	}
+}
+
 void zoomujpalya( char* palyanev ) {
 	palyanev = palyanev;
+	if( Zoommentett < 0 ) {
+		// As read from state.dat: the screen size and the gap too (the first
+		// play after the start)
+		Zoommentett = State->zoomezred;
+		Meretmentett = State->kepmeretezred;
+		Reszmentett = State->reszint;
+		Kepmeret = State->kepmeretezred/1000.0;
+		if( !(Kepmeret >= 0.7) ) Kepmeret = 0.7; // also catches a broken value
+		if( Kepmeret > 1.0 ) Kepmeret = 1.0;
+		Reszint = State->reszint;
+		if( Reszint < 0 || Reszint > 2 ) Reszint = 1;
+		Kitoltestmegrak = Kitoltestmegrakkezd;
+	}
 	Zoom = State->zoomezred/1000.0;
 	if( !(Zoom >= zoommin()) ) // also catches a broken value
 		Zoom = zoommin();
@@ -689,6 +725,469 @@ static void kibike( int ajatekos, pic8* ppic, double t, vekt2 sarok,
 	}
 }
 
+
+// ---------------------------------------------------------------------------
+// (port) The bike for the GPU, in single precision: the PSP's FPU only does
+// float, every double operation is a slow library call. This is a copy of
+// kidoboz, kidobozkerek, kitag and kibike above (and the start of dobozki)
+// with float instead of double; the physics stays double.
+// ---------------------------------------------------------------------------
+struct vf {
+	float x, y;
+	vf( void ) : x( 0 ), y( 0 ) {}
+	vf( float ax, float ay ) : x( ax ), y( ay ) {}
+	vf( const vekt2& v ) : x( (float)v.x ), y( (float)v.y ) {}
+	vf operator + ( vf b ) const { return vf( x+b.x, y+b.y ); }
+	vf operator - ( vf b ) const { return vf( x-b.x, y-b.y ); }
+	float operator * ( vf b ) const { return x*b.x + y*b.y; }
+	void normal( void ) { float r = 1.0f/sqrtf( x*x+y*y ); x *= r; y *= r; }
+	void forgatas( float alfa ) {
+		float a = sinf( alfa ), b = cosf( alfa ), xo = x;
+		x = b*x-a*y;
+		y = a*xo+b*y;
+	}
+};
+static inline vf operator * ( float a, vf v ) { return vf( a*v.x, a*v.y ); }
+static inline vf operator * ( vf v, float a ) { return vf( a*v.x, a*v.y ); }
+static inline vf egys( vf a ) { return a*(1.0f/sqrtf( a.x*a.x+a.y*a.y )); }
+static inline vf forgatas90fokkal( vf a ) { return vf( -a.y, a.x ); }
+static inline vf forgatasminusz90fokkal( vf a ) { return vf( a.y, -a.x ); }
+
+static vf ketkormetszete( vf r1, vf r2, float l1, float l2 ) {
+	vf v = r2-r1;
+	float l = sqrtf( v*v );
+	if( l >= l1+l2 )
+		l = l1+l2 - 0.000001f;
+	if( l1 >= l+l2 )
+		l1 = l + l2 - 0.00001f;
+	if( l2 >= l+l1 )
+		l2 = l +l1 - 0.00001f;
+	vf vegys = v * (1/l);
+	vf normal = forgatas90fokkal( vegys );
+	float x = (l1*l1 - l2*l2 + l*l) / (2.0f*l);
+	float mm = l1*l1 - x*x;
+	float m = mm > 0 ? sqrtf( mm ) : 0.0f;
+	return r1 + x*vegys + m*normal;
+}
+
+static vf Affinkozep_f, Affinirany_f;
+static float Affinnagysag_f = 1.0f, Affinaranyx_f = 1.0f, Affinaranyy_f = 1.0f;
+
+static void setaffinitas_f( vf kozep, vf irany, float nagysag, float aranyx, float aranyy ) {
+	Affinkozep_f = kozep;
+	irany.normal();
+	Affinirany_f = irany;
+	Affinnagysag_f = nagysag;
+	Affinaranyx_f = aranyx;
+	Affinaranyy_f = aranyy;
+}
+
+static void dobozki_f( kiskep* pkiskep, vf u, vf v, vf r ) {
+	if( Affinitas ) {
+		r.x /= Affinaranyx_f; r.y /= Affinaranyy_f;
+		u.x /= Affinaranyx_f; u.y /= Affinaranyy_f;
+		v.x /= Affinaranyx_f; v.y /= Affinaranyy_f;
+		float tav = (r-Affinkozep_f)*Affinirany_f;
+		r = r - (tav*(1.0f-Affinnagysag_f))*Affinirany_f;
+		tav = u*Affinirany_f;
+		u = u - (tav*(1.0f-Affinnagysag_f))*Affinirany_f;
+		tav = v*Affinirany_f;
+		v = v - (tav*(1.0f-Affinnagysag_f))*Affinirany_f;
+		r.x *= Affinaranyx_f; r.y *= Affinaranyy_f;
+		u.x *= Affinaranyx_f; u.y *= Affinaranyy_f;
+		v.x *= Affinaranyx_f; v.y *= Affinaranyy_f;
+	}
+	// As in dobozki: corner r is texel (0.5, 0.5), r+u and r+v the far edges
+	float xy[8], uv[8];
+	vf sarkok[4] = { r, r+u, r+v, r+u+v };
+	float tu[4] = { 0.5f, pkiskep->xsize-0.5f, 0.5f, pkiskep->xsize-0.5f };
+	float tv[4] = { 0.5f, 0.5f, pkiskep->ysize-0.5f, pkiskep->ysize-0.5f };
+	float gx = (float)Dobozgpux, gy = (float)Dobozgpuy;
+	for( int k = 0; k < 4; k++ ) {
+		xy[2*k]   = gx + sarkok[k].x + 0.5f;
+		xy[2*k+1] = gy - sarkok[k].y - 0.5f;
+		uv[2*k]   = tu[k];
+		uv[2*k+1] = tv[k];
+	}
+	port_gpu_negyszog( xy, uv, pkiskep->tomb, pkiskep->xsize, pkiskep->ysize, pkiskep->lyuk );
+}
+
+static float Mx_f = -1, My_f = -1;
+static vf Mi_f, Mj_f, Mr_f;
+static vf Miar_f, Mjar_f, Mrar_f;
+
+static void kidoboz_f( vf a, vf b, pic8* ppic8, float szelesseg,
+        kiskep* pk, float tulloga, float tullogb, int tukor = 0 ) {
+    vf vegys = egys( b-a );
+    b = b + vegys*tullogb;
+    a = a - vegys*tulloga;
+    vf v = b-a;
+    vf v2fel;
+    if( tukor )
+        v2fel = forgatas90fokkal( vegys ) * szelesseg;
+    else
+		v2fel = forgatasminusz90fokkal( vegys ) * szelesseg;
+    a = a-v2fel;
+
+    a.x *= ((float)Arany);
+    a.y *= ((float)Arany);
+    v.x *= ((float)Arany);
+    v.y *= ((float)Arany);
+    v2fel.x *= ((float)Arany);
+    v2fel.y *= ((float)Arany);
+    dobozki_f( pk, v, v2fel*2.0f, a );
+}
+
+static void kidobozkerek_f( vf r, float sugar, float alfa,
+        pic8* ppicbuffer, kiskep* pk, int tukor = 0 ) {
+    vf vfel( cosf( alfa ) * sugar, sinf( alfa ) * sugar );
+    if( tukor )
+        kidoboz_f( r+vfel, r-vfel, ppicbuffer, sugar, pk, 0.0f, 0.0f, tukor );
+    else
+        kidoboz_f( r-vfel, r+vfel, ppicbuffer, sugar, pk, 0.0f, 0.0f, tukor );
+}
+
+static void kitag_f( pic8* ppic8, kiskep* pk, kisbox* pb ) {
+	vf r = Miar_f*(pb->x1+260-Mx_f) + Mjar_f*(My_f-(pb->y1+260)) + Mrar_f;
+	vf u = Miar_f*(pb->x2-pb->x1);
+	vf v = Mjar_f*(pb->y1-pb->y2);
+
+    dobozki_f( pk, u, v, r );
+}
+
+static void kibike_f( int ajatekos, pic8* ppic, double t, vekt2 sarok,
+					motorst* pmot, valtozok* pvalt, motkepek* pmk ) {
+
+    // Mivel ezeket fv megvaltoztatja:
+    float ugrasnagysag = pvalt->ugrasnagysag;
+	float forgas = pvalt->baljobbv_f.forgas;
+
+    //if( pvalt->baljobb < 0 || pvalt->baljobb > 1.0f )
+    //    hiba( "pvalt->baljobb < 0 || pvalt->baljobb > 1.0f!" );
+    //if( forgas < 0.0f || forgas > 1.0f )
+    //    hiba( "forgas < 0.0f || forgas > 1.0f!" );
+
+	// Ha kell affinitassal torodni:
+    int vanforgas = 0;
+	Affinitas = 0;
+	if( forgas < 0.999f ) {
+        vanforgas = 1;
+        // forgast 0, 1 intervallumbol atkonvertaljuk -1, 1 intervallumba:
+        forgas = -cosf( forgas*((float)K_pi) );
+	}
+
+	vf p_k1 = (pmot->kor2.r-sarok);
+	vf p_k2 = (pmot->kor4.r-sarok);
+
+	int elsokerekrogton = 1;
+	int hatsokerekrogton = 1;
+
+	if( vanforgas ) {
+		if( (forgas > 0.0f && !pmot->hatra_f) || (forgas <= 0.0f && pmot->hatra_f) )
+			elsokerekrogton = 0;
+		else
+            hatsokerekrogton = 0;
+	}
+
+	// Kerekek:
+	#ifdef BUTITOTT
+	if( elsokerekrogton )
+		kidobozkerek_f( p_k1, ((float)Kerekrajzsugar), 0, ppic, pmk->pkiskerek );
+	if( hatsokerekrogton )
+		kidobozkerek_f( p_k2, ((float)Kerekrajzsugar), 0, ppic, pmk->pkiskerek );
+	#else
+	if( elsokerekrogton )
+		kidobozkerek_f( p_k1, ((float)Kerekrajzsugar), pmot->kor2.alfa, ppic, pmk->pkiskerek );
+	if( hatsokerekrogton )
+		kidobozkerek_f( p_k2, ((float)Kerekrajzsugar), pmot->kor4.alfa, ppic, pmk->pkiskerek );
+	#endif
+
+	vf kozep = pmot->kor1.r-sarok;
+	vf jobbra = vf( cosf( pmot->kor1.alfa ), sinf( pmot->kor1.alfa ) );
+	vf fel = forgatas90fokkal( jobbra );
+
+	if( vanforgas ) {
+		Affinitas = 1;
+		setaffinitas_f( kozep, jobbra, forgas, ((float)Arany), ((float)Arany) );
+	}
+
+	if( pmot->hatra_f ) {
+		jobbra = vf( 0, 0 ) - jobbra;
+		vf tmpv = p_k1;
+		p_k1 = p_k2;
+		p_k2 = tmpv;
+	}
+
+	Mx_f = 390.0f, My_f = 420.0f;
+	float malfa = 0.62f;
+	float mmeret = 0.0045f;
+	Mi_f = jobbra*(mmeret*cosf(malfa))+fel*(mmeret*sinf(malfa));
+	Mj_f = forgatas90fokkal( Mi_f );
+	if( pmot->hatra_f )
+        Mj_f = vf( 0, 0 ) - Mj_f;
+    Mr_f = kozep;
+	// Most ((float)Arany)-t betesszuk Mi_f, Mj_f, Mr_f-be:
+    Miar_f = Mi_f*((float)Arany);
+    Mjar_f = Mj_f*((float)Arany);
+    Mrar_f = Mr_f*((float)Arany);
+
+	// Elso felfuggesztes:
+	vf p_fogantyu = Mi_f*(365.0f-Mx_f) + Mj_f*(My_f-292.0f) + Mr_f; // Uj
+	kidoboz_f( p_k1, p_fogantyu, ppic, 0.06f,
+		pmk->pkiselsorud, 0.05f, 0.03f );
+
+	// Hatso felfuggesztes:
+	vf p_darab2 = Mi_f*(370.0f-Mx_f) + Mj_f*(My_f-520.0f) + Mr_f;
+	kidoboz_f( p_darab2, p_k2, ppic, 0.06f,
+		pmk->pkishatsorud, 0.0f, 0.1f );
+
+	// Ha kell zaszlot rajzol:
+	int flages = 0;
+	if( !Single && Tag ) {
+		if( (ajatekos && Aafogo) ||
+			(!ajatekos && !Aafogo) )
+			flages = 1;
+
+		if( !flages && Kozelvannak ) {
+			int egeszido = t*30.0f;
+			if( egeszido%2 )
+				flages = 1;
+		}
+	}
+	vf zaszlotalp = Mi_f*(500.0f+107-Mx_f) + Mj_f*(My_f+114-600.0f) + Mr_f;
+	// 330 bal oldal (5)
+	// 340 bal oldal (3)
+	// 355 bal oldal (1.5f)
+	// 365 jobb oldal (1)
+	// 361 jobb hajszalnyit
+	vf zaszloteto = zaszlotalp + (Mi_f*356.0f + Mj_f*500.0f)*0.2f;
+	if( flages )
+		kidoboz_f( zaszlotalp, zaszloteto, ppic, 0.2f, Plgr->pkiszaszlo,
+											0.0f, 0.0f, pmot->hatra_f );
+
+	// Motor teste:
+	kitag_f( ppic, pmk->pkisa, &KisboxA );
+	kitag_f( ppic, pmk->pkisb, &KisboxB );
+	kitag_f( ppic, pmk->pkisc, &KisboxC );
+	kitag_f( ppic, pmk->pkisd, &KisboxD );
+
+
+
+	// Mozgo test:
+	vf p_vezeto = (pmot->vezetor-sarok); // Vezeto
+	vf p_csipo = p_vezeto + Mi_f*75.0f + Mj_f*(-47.0f);
+	vf p_vall = p_vezeto + Mi_f*47.0f + Mj_f*65.0f;
+	vf p_valltest = p_vezeto + Mi_f*41.0f + Mj_f*70.0f;
+	vf p_labfej = Mi_f*(346.0f-Mx_f) + Mj_f*(My_f-514.0f) + Mr_f;
+	/* Bicigli:
+	p_labfej = p_labfej + 0.14f*
+					(jobbra * sinf(pmot->labalfa) +
+					 fel * cosf(pmot->labalfa) );
+	*/
+	vf p_terd;
+
+	float combhossz = 0.51f;
+	float labszarhossz = 0.51f;
+	/* Bicigli lab hosszak:
+	float combhossz = 0.56f;
+	float labszarhossz = 0.56f;
+	*/
+
+	if( pmot->hatra_f )
+		p_terd = ketkormetszete( p_csipo, p_labfej,
+										combhossz, labszarhossz );
+	else
+		p_terd = ketkormetszete( p_labfej, p_csipo,
+										labszarhossz, combhossz );
+
+	// Fej:
+	//float fejalfa = 0.20f;
+	float fejalfa = 0.0f;
+	if( pmot->hatra_f )
+		fejalfa = 0 - fejalfa;
+	kidobozkerek_f( pmot->fejr-sarok, ((float)Fejsugar), pmot->kor1.alfa+fejalfa,
+				  ppic, pmk->pkisfej, pmot->hatra_f );
+
+	// Kar ket reszletben:
+	vf p_kezfej = p_fogantyu;
+
+	// Ugras belekombinalasa kar kirajzolasaba:
+	// p_kezfej-et mozditjuk el szukseges mertekben:
+	if( ugrasnagysag > 0.0001f ) {
+		ugrasnagysag = 1.0f-ugrasnagysag;
+		int fellendit = 1; // kar kiteresenek iranya
+		if( (pvalt->ugras1volt && !pmot->hatra_f) ||
+			(!pvalt->ugras1volt && pmot->hatra_f) )  // XOR
+			fellendit = 0;
+		// alfa es hosszit kiszamolasa:
+		float alfa = 0.0f;
+		float hosszit = 0.1f;
+		if( fellendit ) {
+			// KAR FELFELE LENDUL KI:
+			float hatar = 0.25f;
+			float maxalfa = 2.7f;
+			float maxhosszit = -0.3f;
+			if( ugrasnagysag < hatar ) {
+				// Kilendit:
+				alfa = maxalfa*ugrasnagysag/hatar;
+				hosszit = maxhosszit*ugrasnagysag/hatar+1.0f;
+			}
+			else {
+				// Visszaenged:
+				float mertek = 1.0f-(ugrasnagysag-hatar)/(1.0f-hatar);
+				alfa = maxalfa*mertek;
+				hosszit = maxhosszit*mertek+1.0f;
+			}
+		}
+		else {
+			// KAR LEFELE LENDUL KI:
+			float hatar = 0.2f;
+			float maxalfa = -1.6f;
+			float maxhosszit = 0.15f;
+			if( ugrasnagysag < hatar ) {
+				// Kilendit:
+				alfa = maxalfa*ugrasnagysag/hatar;
+				hosszit = maxhosszit*ugrasnagysag/hatar+1.0f;
+			}
+			else {
+				// Visszaenged:
+				float mertek = 1.0f-(ugrasnagysag-hatar)/(1.0f-hatar);
+				alfa = maxalfa*mertek;
+				hosszit = maxhosszit*mertek+1.0f;
+			}
+		}
+		// alfa es hosszit alapjan p_kezfej forgatasa es nyujtasa vall korul:
+		vf kar = p_kezfej-p_vall;
+		if( !pmot->hatra_f )
+			kar.forgatas( -alfa );
+		else
+			kar.forgatas( alfa );
+		kar = kar*hosszit;
+		p_kezfej = p_vall + kar;
+	}
+
+	float alkarhossz = 0.308f*1.05f;
+	float felkarhossz = 0.328f*1.05f;
+	vf p_konyok;
+	if( pmot->hatra_f )
+		p_konyok = ketkormetszete( p_kezfej, p_vall,
+										alkarhossz, felkarhossz );
+	else
+		p_konyok = ketkormetszete( p_vall, p_kezfej,
+										felkarhossz, alkarhossz );
+
+	// Lab:
+	kidoboz_f( p_terd, p_csipo, ppic, 0.14f,
+		pmk->pkiscomb, 0.03f, 0.1f, pmot->hatra_f );
+
+	kidoboz_f( p_labfej, p_terd, ppic, 0.21f,
+		pmk->pkislabszar, 0.03f, 0.03f, pmot->hatra_f );
+
+	// Vezeto:
+	kidoboz_f( p_csipo, p_valltest, ppic, 0.2f,
+		pmk->pkisvezeto, 0.1f, 0.05f, pmot->hatra_f );
+
+	// Kez:
+	kidoboz_f( p_konyok, p_vall, ppic, 0.11f,
+		pmk->pkisfelkar, 0.08f, 0.1f, !pmot->hatra_f );
+
+	kidoboz_f( p_kezfej, p_konyok, ppic, 0.076f,
+		pmk->pkisalkar, 0.08f, 0.1f, pmot->hatra_f );
+
+	Affinitas = 0;
+
+	// Kerekek:
+	if( !elsokerekrogton || !hatsokerekrogton ) {
+		if( pmot->hatra_f ) {
+			// Visszacserelem kerekek koordjait:
+			vf tmpv = p_k1;
+			p_k1 = p_k2;
+			p_k2 = tmpv;
+		}
+		#ifdef BUTITOTT
+		if( !elsokerekrogton )
+			kidobozkerek_f( p_k1, pmot->kor2.sugar, 0, ppic, pmk->pkiskerek );
+		if( !hatsokerekrogton )
+			kidobozkerek_f( p_k2, pmot->kor4.sugar, 0, ppic, pmk->pkiskerek );
+		#else
+		if( !elsokerekrogton )
+			kidobozkerek_f( p_k1, pmot->kor2.sugar, pmot->kor2.alfa, ppic, pmk->pkiskerek );
+		if( !hatsokerekrogton )
+			kidobozkerek_f( p_k2, pmot->kor4.sugar, pmot->kor4.alfa, ppic, pmk->pkiskerek );
+		#endif
+	}
+}
+
+// (port) GPU drawing: the minimap and the timer must stay in front of the
+// GPU-drawn bikes, so they are marked in the GPU's mask. Coordinates of the
+// picture (x, y up) -> screen buffer (y down):
+static int Gpunezet = 0; // drawing a view for the GPU
+static int Gpux = 0, Gpuy = 0; // screen-buffer x of picture x 0, y of picture y 0
+
+static void maszkba( int x1, int y1, int x2, int y2 ) {
+	port_gpu_jelolteglalap( Gpux+x1, Gpuy-y2, Gpux+x2, Gpuy-y1 );
+}
+
+static void minimapesido( int ajatekos, pic8* ppic, double t, motorst* pmot,
+						  valtozok* pvalt, int viewki, int timeki, motorst* pmot2,
+						  vekt2 motorkozep ) {
+	port_reszkezd();
+	if( viewki ) {
+		if( Single )
+			kiview( ajatekos, ppic, pvalt->baljobbv_h.baljobb, motorkozep, NULL );
+		else
+			kiview( ajatekos, ppic, pvalt->baljobbv_h.baljobb, motorkozep, pmot2 );
+		// (port) the minimap's area, with its frame, is in front of the bikes:
+		if( Gpunezet ) {
+			int vx1 = Viewxorig + pvalt->baljobbv_h.baljobb*Viewxtolas;
+			maszkba( vx1-1, 0, vx1+Viewxsize, 1+Viewysize );
+		}
+	}
+
+	port_reszvege( 4 );
+	port_reszkezd();
+	double fogoido = -1.0;
+	if( !Single ) {
+		if( ajatekos )
+			fogoido = Afogoido;
+		else
+			fogoido = Bfogoido;
+	}
+
+	// Idokiiras:
+	if( Gpunezet )
+		Port_lookhook = maszkba; // (port) the digits are in front of the bikes
+	// (port) In split screen the digits are bigger than the view's own size
+	// would make them (half as tall as with one player: hard to read), but
+	// not as big as with one player:
+	int Digitmeret = Single ? Cysize : (3*Cysize)/2;
+	if( Digitmeret > Port_kepy )
+		Digitmeret = Port_kepy;
+	if( timeki ) {
+		// Korny->legjobbido - volt eredetileg "" helyett:
+		/*if( sordarabszam > 0 ) {
+			char darabok[10];
+			sprintf( darabok, "%d", sordarabszam );
+			strrev( darabok );
+			while( strlen( darabok ) < 6 )
+				strcat( darabok, "0" );
+			strrev( darabok );
+			darabok[7] = darabok[5];
+			darabok[6] = darabok[4];
+			darabok[4] = darabok[3];
+			darabok[3] = darabok[2];
+			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize, Digitmeret );
+		}
+		else*/
+			if( Tag )
+				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize, Digitmeret );
+			else
+				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize, Digitmeret );
+	}
+	port_reszvege( 5 );
+	Port_lookhook = NULL;
+}
+
 static void kirakegyjatekost(
 		int ajatekos,
 		pic8* ppic, double t, motorst* pmot,
@@ -703,13 +1202,16 @@ static void kirakegyjatekost(
 				 motorkozep.y-Mo_y );
 
 	//ppic->fillbox( 100 );
+	port_reszkezd(); // (port) timing overlay
 	Pecsetalso->kitesz( ajatekos, ppic, sarok, 0, 0, Cxsize-1, Cysize-1 );
+	port_reszvege( 0 );
 	int sordarabszam = Kisordarabszam;
 
 	hang( /*"Ecsetalso utan"*/ );
 
 
 	// Objektumok kirajzolasa, de view-ba csak kesobb kerulnek:
+	port_reszkezd();
 	int balalsox, balalsoy;
 	Pecsetalso->getbalalso_int( sarok, &balalsox, &balalsoy );
 	int objminx = balalsox - 2*OBJEKTUMSUGAR_I - 2;
@@ -773,6 +1275,21 @@ static void kirakegyjatekost(
 		blt8( ppic, pobjpic, pker->rxint-balalsox,
 									   pker->ryint-balalsoy + dy );
 	}
+	port_reszvege( 3 );
+	port_reszkezd();
+
+	// (port) GPU: the GPU draws the bikes over the finished picture; the
+	// foreground, the minimap and the timer mark the mask that keeps them in
+	// front of the bikes:
+	Gpunezet = port_gpujatek();
+	if( Gpunezet ) {
+		Gpux = Nezx1;
+		Gpuy = Port_kepy-1-Nezy1;
+		port_gpu_nezet( Nezx1, Port_kepy-1-Nezy2, Nezx2, Port_kepy-1-Nezy1 );
+		Dobozgpu = 1;
+		Dobozgpux = Nezx1;
+		Dobozgpuy = Port_kepy - Nezy1;
+	}
 
 	// Motorosok kirajzolasa:
 	motkepek* pmkepek1 = &Plgr->mkepek1;
@@ -790,57 +1307,50 @@ static void kirakegyjatekost(
 		vekt2 kozep( sarok.x + 0.5*Port_kepx*Aranyrec, sarok.y + 0.5*Port_kepy*Aranyrec );
 		double tav = abs( pmot2->kor1.r - kozep );
 		double felatlo = 0.5*sqrt( double(Port_kepx)*Port_kepx + double(Port_kepy)*Port_kepy );
-		if( tav < (felatlo+140.0)*Aranyrec )
-			kibike( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
+		if( tav < (felatlo+140.0)*Aranyrec ) {
+			if( Gpunezet ) {
+				port_gpu_motor(); // (port) its own mask box
+				kibike_f( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
+			}
+			else
+				kibike( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
+		}
 	}
 
 	// Motoros kirajzolasa: 
-	kibike( ajatekos, ppic, t, sarok, pmot, pvalt, pmkepek1 );
+	if( Gpunezet ) {
+		port_gpu_motor(); // (port)
+		kibike_f( ajatekos, ppic, t, sarok, pmot, pvalt, pmkepek1 );
+	}
+	else
+		kibike( ajatekos, ppic, t, sarok, pmot, pvalt, pmkepek1 );
 
+	port_reszvege( 2 );
+	Dobozgpu = 0;
 	// Felso ecset kitevese:
+	port_reszkezd();
+	if( Gpunezet ) {
+		port_gpu_maszk(); // the bikes are done: the mask around them
+		Ecsetgpu = 1;
+		Ecsetgpux = Gpux;
+		Ecsetgpuy = Gpuy;
+	}
 	Pecsetfelso->kitesz( ajatekos, ppic, sarok, 0, 0, Cxsize-1, Cysize-1 );
+	Ecsetgpu = 0;
+	port_reszvege( 1 );
 	sordarabszam += Kisordarabszam;
 
-	if( viewki ) {
-		if( Single )
-			kiview( ajatekos, ppic, pvalt->baljobbv_h.baljobb, motorkozep, NULL );
-		else
-			kiview( ajatekos, ppic, pvalt->baljobbv_h.baljobb, motorkozep, pmot2 );
-	}
-
-	double fogoido = -1.0;
-	if( !Single ) {
-		if( ajatekos )
-			fogoido = Afogoido;
-		else
-			fogoido = Bfogoido;
-	}
-
-	// Idokiiras:
-	if( timeki ) {
-		// Korny->legjobbido - volt eredetileg "" helyett:
-		/*if( sordarabszam > 0 ) {
-			char darabok[10];
-			sprintf( darabok, "%d", sordarabszam );
-			strrev( darabok );
-			while( strlen( darabok ) < 6 )
-				strcat( darabok, "0" );
-			strrev( darabok );
-			darabok[7] = darabok[5];
-			darabok[6] = darabok[4];
-			darabok[4] = darabok[3];
-			darabok[3] = darabok[2];
-			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize );
-		}
-		else*/
-			if( Tag )
-				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize );
-			else
-				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize );
-	}
+	minimapesido( ajatekos, ppic, t, pmot, pvalt, viewki, timeki, pmot2,
+				  motorkozep );
+	Gpunezet = 0;
 }
 
 static pic8* Bpic = NULL;
+
+static void nezetbe( int x1, int y1, int x2, int y2, pic8* npic ) {
+	Nezx1 = x1; Nezy1 = y1; Nezx2 = x2; Nezy2 = y2;
+	Bpic->keszitbelsot( x1, y1, x2, y2, npic );
+}
 
 extern int Ucsosurlodas;
 
@@ -892,7 +1402,7 @@ void kirajzol320(
 
 	if( splitscreen ) {
 		// 1. Jatekos:
-		Bpic->keszitbelsot( Cx1, Cy1, Cx2, Cy2, npic );
+		nezetbe( Cx1, Cy1, Cx2, Cy2, npic );
 
 		kirakegyjatekost(
 			1,
@@ -902,7 +1412,7 @@ void kirajzol320(
 			Pmot2, pvalt2 );
 
 		// 2. Jatekos:
-		Bpic->keszitbelsot( Cx1, Cy1Bplayer, Cx2, Cy2Bplayer, npic );
+		nezetbe( Cx1, Cy1Bplayer, Cx2, Cy2Bplayer, npic );
 
 		kirakegyjatekost(
 			0,
@@ -912,7 +1422,7 @@ void kirajzol320(
 			Pmot1, pvalt1 );
 	}
 	else {
-		Bpic->keszitbelsot( Cx1, Cy1, Cx2, Cy2, npic );
+		nezetbe( Cx1, Cy1, Cx2, Cy2, npic );
 		if( fulljatekosA ) {
 			kirakegyjatekost(
 					1,

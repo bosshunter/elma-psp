@@ -10,6 +10,12 @@ static double Affinaranyy = 1.0;
 
 static double Tulvizszintes = 0.005;
 
+// (port) If set, dobozki hands the part to the GPU (port_gpu_negyszog) instead
+// of drawing it: picture x is screen-buffer x Dobozgpux+x, picture y (up) is
+// screen-buffer y Dobozgpuy-y (down).
+int Dobozgpu = 0;
+double Dobozgpux = 0.0, Dobozgpuy = 0.0;
+
 // (port) Use the portable C egysor() (no x86 inline assembly):
 //#define LEGYENASM _
 
@@ -206,6 +212,25 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 		u.y *= Affinaranyy;
 		v.x *= Affinaranyx;
 		v.y *= Affinaranyy;
+	}
+
+	// (port) GPU: the part is a textured quad; corner r is texel (0.5, 0.5),
+	// r+u and r+v are the other two edges of the picture (see the CPU loop:
+	// the pixel at p shows texel 0.5 + inverse(u, v) * (p - r)):
+	if( Dobozgpu ) {
+		float xy[8], uv[8];
+		vekt2 sarkok[4] = { r, r+u, r+v, r+u+v };
+		float tu[4] = { 0.5f, pkiskep->xsize-0.5f, 0.5f, pkiskep->xsize-0.5f };
+		float tv[4] = { 0.5f, 0.5f, pkiskep->ysize-0.5f, pkiskep->ysize-0.5f };
+		for( int k = 0; k < 4; k++ ) {
+			// picture coordinates (y up) -> screen buffer (y down), pixel centres:
+			xy[2*k]   = (float)( Dobozgpux + sarkok[k].x + 0.5 );
+			xy[2*k+1] = (float)( Dobozgpuy - sarkok[k].y - 0.5 );
+			uv[2*k]   = tu[k];
+			uv[2*k+1] = tv[k];
+		}
+		port_gpu_negyszog( xy, uv, pkiskep->tomb, pkiskep->xsize, pkiskep->ysize, lyuk );
+		return;
 	}
 
 	// Megnezi, hogy nem tul vizszintes-e:
@@ -429,6 +454,8 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 	short* pf_hatjobb2 = (short*)(&hatjobb2);
 	pf_hatjobb2++;
 
+	port_pixkezd(); // (port) timing overlay: the pixel loops
+	struct pixvedo { ~pixvedo() { port_pixvege(); } } pixvedo_;
 	if( kilog ) {
 		//Voltkilogas = 1; //Csak teszteleshez
 		// Nagy ciklus kezdetet veszi:

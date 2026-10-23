@@ -154,6 +154,12 @@ void teljes( void ) {
 
 	seteditorpal();
 
+	// (port) The pictures of the default LGR file are read now, while the
+	// intro picture is shown, instead of when the first level starts (that
+	// felt like the game froze for a moment):
+	if( access( "lgr\\default.lgr", 0 ) == 0 )
+		{ char nev[10] = "DEFAULT"; loadlgrfile( nev ); }
+
 	// Eger:
 	int mmx = 355;
 	int mmy = 265;

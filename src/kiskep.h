@@ -5,7 +5,8 @@
 class kiskep {
 public:
 	unsigned char lyuk;
-	unsigned char* tomb;
+	unsigned char* tomb;     // (port) 16-byte aligned, so the GPU can use it as a texture
+	unsigned char* foglalt;  // (port) the allocation tomb is in
 	int xsize, ysize;
 	long hossz;
 	// Ha megadjuk ppic-t, akkor azt o deleteli:

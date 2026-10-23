@@ -3,11 +3,13 @@
 #define MAXBUFFER (20000u)
 static int Maxegybefuggo = 255;
 
+// (port) Both read the row directly (gpixel for each pixel was slow):
 // Visszaadja hany db pixel kell szinu, max sor vegeig:
 static int kellszinudb( pic8* ppic, int x, int y, unsigned char szin ) {
+	const unsigned char* sor = ppic->getptr( y );
+	int xsize = ppic->getxsize();
 	int darab = 0;
-	while( x < ppic->getxsize() && ppic->gpixel( x, y ) != szin &&
-		darab < Maxegybefuggo ) {
+	while( x < xsize && sor[x] != szin && darab < Maxegybefuggo ) {
 		x++;
 		darab++;
 	}
@@ -16,9 +18,10 @@ static int kellszinudb( pic8* ppic, int x, int y, unsigned char szin ) {
 
 // Visszaadja hany db pixel nem kell szinu, max sor vegeig:
 static int nemkellszinudb( pic8* ppic, int x, int y, unsigned char szin ) {
+	const unsigned char* sor = ppic->getptr( y );
+	int xsize = ppic->getxsize();
 	int darab = 0;
-	while( x < ppic->getxsize() && ppic->gpixel( x, y ) == szin &&
-		darab < Maxegybefuggo ) {
+	while( x < xsize && sor[x] == szin && darab < Maxegybefuggo ) {
 		x++;
 		darab++;
 	}
@@ -83,6 +86,7 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 
 void spriteosit( pic8* ppic, int szin ) {
 	ppic->sprite = spriteadat8( ppic, szin, &ppic->spritehossz );
+	ppic->atlatszo = szin & 0xff; // (port) remembered for drawing with the GPU
 }
 
 void spriteosit( pic8* ppic ) {

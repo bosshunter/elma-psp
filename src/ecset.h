@@ -96,6 +96,7 @@ class ecset {
 	void kiegysor_A( unsigned char* pc, int ye );
 	void kiegysor_B( unsigned char* pc, int ye );
 	void kiegysor_FF( unsigned char* pc, int ye ); // fekete-feher
+	void kiegysor_gpu( int ajatekos, int xd, int yd, int ye ); // (port)
 
 	void foltoz( void );
 
@@ -116,6 +117,7 @@ extern ecset* Pecsetfelso;
 extern ecset* Pecsetview;
 
 extern int Kisordarabszam;
+extern int Ecsetgpu, Ecsetgpux, Ecsetgpuy; // (port) see ecset.cpp
 
 // Ket kis utility fuggveny (hasznalja oket LGR.CPP):
 // Visszaadja hany pixel lyuk szinu x-tol kezdve:

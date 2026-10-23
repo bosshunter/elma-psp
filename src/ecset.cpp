@@ -1348,6 +1348,12 @@ void ecset::deletemdarabok( void ) {
 
 static int Xe1, Xe2, Xe2plussz1;
 
+// (port) If set, ecset::kitesz also marks the GPU's mask (port_gpu_jelol)
+// where it draws, so the GPU-drawn bikes stay behind the foreground:
+// row y of the picture is row Ecsetgpuy-y of the screen buffer (the gameplay
+// picture is upside down), column x is Ecsetgpux+x.
+int Ecsetgpu = 0, Ecsetgpux = 0, Ecsetgpuy = 0;
+
 unsigned char *Foldsor = NULL, *Egsor = NULL;
 
 void ecset::kiegysor_A( unsigned char* pc, int ye ) {
@@ -1470,6 +1476,146 @@ void ecset::kiegysor_A( unsigned char* pc, int ye ) {
 			else {
 				if( (int)(intptr_t)pda->pixelek == PX_FOLD ) {
 					BYTECOPY( pc, Foldsor + (xpos-Xe1), pda->xsize );
+				}
+				else {
+					#ifdef TEST
+						if( (int)(intptr_t)pda->pixelek != PX_URES )
+							hiba( "(int)(intptr_t)pda->pixelek != PX_URES 653wetgki!" );
+					#endif
+				}
+			}
+		}
+
+		xpos += pda->xsize;
+		pc += pda->xsize;
+		pda++;
+	}
+}
+
+// (port) Mask version of kiegysor_A / kiegysor_B: instead of copying the
+// pixels of each piece into the row, it marks the GPU's mask where the piece
+// would be drawn (port_gpu_jelol). xd, yd: where the
+// row starts in the screen buffer.
+void ecset::kiegysor_gpu( int ajatekos, int xd, int yd, int ye ) {
+	darab** curdarabok = ajatekos ? curdarabok_A : curdarabok_B;
+	int* kurxposok = ajatekos ? kurxposok_A : kurxposok_B;
+	int pc = xd; // x of the next pixel in the screen buffer
+	// Visszalepunk amig kell:
+	darab* pda = curdarabok[ye];
+	int xpos = kurxposok[ye];
+	while( xpos > Xe1 ) {
+		pda--;
+		xpos -= pda->xsize;
+	}
+	// Elorelepunk amig kell:
+	while( xpos + pda->xsize <= Xe1 ) {
+		xpos += pda->xsize;
+		pda++;
+
+	}
+	// Elmentjuk kurrens darabot:
+	curdarabok[ye] = pda;
+	kurxposok[ye] = xpos;
+
+
+	// ELSO SZAKASZ      ELSO SZAKASZ       ELSO SZAKASZ
+	// ELSO SZAKASZ      ELSO SZAKASZ       ELSO SZAKASZ
+	// ELSO SZAKASZ      ELSO SZAKASZ       ELSO SZAKASZ
+	// ELSO SZAKASZ      ELSO SZAKASZ       ELSO SZAKASZ
+	int ures = Xe1-xpos;
+	if( xpos + pda->xsize > Xe2 ) {
+		// ATLOG VEGIG:
+		int ujpdaxsize = Xe2-xpos+1;
+		// Ha eppen vegeig log, akkor is ide jon
+		if( (int)(intptr_t)pda->pixelek & PIXELMASZK ) {
+			// Normal kep copi:
+			port_gpu_jelol( pc, yd, ujpdaxsize-ures );
+		}
+		else {
+			// Eg, Fold, vagy ures:
+			if( !pda->pixelek ) { // Eg
+				port_gpu_jelol( pc, yd, ujpdaxsize-ures );
+				return;
+			}
+			if( (int)(intptr_t)pda->pixelek == PX_FOLD )
+				port_gpu_jelol( pc, yd, ujpdaxsize-ures );
+			else {
+				#ifdef TEST
+					if( (int)(intptr_t)pda->pixelek != PX_URES ) hiba( "(int)(intptr_t)pda->pixelek != PX_URES iueghyreg!" );
+				#endif
+			}
+		}
+		return;
+	}
+
+	// Elso szakasz nem log at vegig:
+	int size = pda->xsize-ures;
+	if( (int)(intptr_t)pda->pixelek & PIXELMASZK ) {
+		// Normal kep copi:
+		port_gpu_jelol( pc, yd, size );
+	}
+	else {
+		// Eg, Fold, vagy ures:
+		if( !pda->pixelek )  // Eg
+			port_gpu_jelol( pc, yd, size );
+		else {
+			if( (int)(intptr_t)pda->pixelek == PX_FOLD )
+				port_gpu_jelol( pc, yd, size );
+			else {
+				#ifdef TEST
+					if( (int)(intptr_t)pda->pixelek != PX_URES )
+						hiba( "(int)(intptr_t)pda->pixelek != PX_URES iygvfrgiyvr!" );
+				#endif
+			}
+		}
+	}
+	// Atugrunk kovetkezore:
+	xpos += pda->xsize;
+	pda++;
+	pc += size;
+
+	// BENT KEZDODO SZAKASZOK          BENT KEZDODO SZAKASZOK
+	// BENT KEZDODO SZAKASZOK          BENT KEZDODO SZAKASZOK
+	// BENT KEZDODO SZAKASZOK          BENT KEZDODO SZAKASZOK
+	// BENT KEZDODO SZAKASZOK          BENT KEZDODO SZAKASZOK
+	while( xpos <= Xe2 ) {
+		#ifdef KIIRDARABOT
+			Kisordarabszam++;
+		#endif
+
+		if( xpos + pda->xsize > Xe2 ) {
+			// Ez az utolso darab, ki is loghat:
+			if( (int)(intptr_t)pda->pixelek & PIXELMASZK ) {
+				// Normal kep copi:
+				port_gpu_jelol( pc, yd, Xe2-xpos+1 );
+				return;
+			}
+			if( !pda->pixelek ) {
+				port_gpu_jelol( pc, yd, Xe2-xpos+1 );
+				return;
+			}
+			if( (int)(intptr_t)pda->pixelek == PX_FOLD ) {
+				port_gpu_jelol( pc, yd, Xe2-xpos+1 );
+				return;
+			}
+			#ifdef TEST
+				if( (int)(intptr_t)pda->pixelek != PX_URES )
+					hiba( "(int)(intptr_t)pda->pixelek != PX_URES 653wetgki!" );
+			#endif
+		}
+
+		// Ez a darab nem log ki:
+		if( (int)(intptr_t)pda->pixelek & PIXELMASZK ) {
+			// Normal kep copi:
+			port_gpu_jelol( pc, yd, pda->xsize );
+		}
+		else {
+			if( !pda->pixelek ) {
+				port_gpu_jelol( pc, yd, pda->xsize );
+			}
+			else {
+				if( (int)(intptr_t)pda->pixelek == PX_FOLD ) {
+					port_gpu_jelol( pc, yd, pda->xsize );
 				}
 				else {
 					#ifdef TEST
@@ -1894,6 +2040,9 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 				kiegysor_FF( ppic->getptr(y)+x1, ye );
 			#else
 				kiegysor_A( ppic->getptr(y)+x1, ye );
+				// (port) and the mask in front of the GPU-drawn bikes:
+				if( Ecsetgpu && port_gpu_maszksor( Ecsetgpuy-y ) )
+					kiegysor_gpu( 1, Ecsetgpux+x1, Ecsetgpuy-y, ye );
 			#endif
 		}
 	}
@@ -1911,6 +2060,9 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 				kiegysor_FF( ppic->getptr(y)+x1, ye );
 			#else
 				kiegysor_B( ppic->getptr(y)+x1, ye );
+				// (port) and the mask in front of the GPU-drawn bikes:
+				if( Ecsetgpu && port_gpu_maszksor( Ecsetgpuy-y ) )
+					kiegysor_gpu( 0, Ecsetgpux+x1, Ecsetgpuy-y, ye );
 			#endif
 		}
 	}

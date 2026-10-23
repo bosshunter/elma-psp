@@ -79,6 +79,8 @@ state_s::state_s( char* nev ) {
 	editfilenev[0] = 0;
 	playextfilenev[0] = 0;
 	zoomezred = 1000; // (port) zoom 1.0
+	kepmeretezred = 1000; // (port) full screen size
+	reszint = 1;          // (port) the thin gap in split screen
 
 	resetcontrols();
 
@@ -158,6 +160,15 @@ state_s::state_s( char* nev ) {
 		fread( &billzoomout, 1, 4, h );
 		if( portverzio >= 2 )
 			fread( &zoomezred, 1, 4, h );
+		// Version 3: Make a Screenshot is not assigned by default any more
+		// (it was I = Triangle): an older file still with that key loses it
+		if( portverzio < 3 && billsnap == 0x17 ) // DIK_I
+			billsnap = 0;
+		// Version 4: the screen size and the split screen gap
+		if( portverzio >= 4 ) {
+			fread( &kepmeretezred, 1, 4, h );
+			fread( &reszint, 1, 4, h );
+		}
 	}
 	else {
 		// Saved by an older version (or the PC): L / R were Dec / Inc Screen
@@ -250,12 +261,14 @@ void state_s::save( void ) {
 		hiba( "Nem megy beolvasas state file-ba!: ", Statenev );
 
 	// (port) PSP extras after the PC data (see the constructor):
-	int portjel = PORTSTATEJEL, portverzio = 2;
+	int portjel = PORTSTATEJEL, portverzio = 4;
 	fwrite( &portjel, 1, 4, h );
 	fwrite( &portverzio, 1, 4, h );
 	fwrite( &billzoomin, 1, 4, h );
 	fwrite( &billzoomout, 1, 4, h );
-	fwrite( &zoomezred, 1, 4, h ); // version 2
+	fwrite( &zoomezred, 1, 4, h ); // version 2 (3: the same data, see the reading)
+	fwrite( &kepmeretezred, 1, 4, h ); // version 4
+	fwrite( &reszint, 1, 4, h );
 
 	fclose( h );
 }

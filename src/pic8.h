@@ -37,6 +37,7 @@ private:
 	unsigned short spritehossz;
 public:
 	int success;
+	int atlatszo; // (port) transparent colour of a sprite (-1: not a sprite), for the GPU
 	pic8( int xsize, int ysize );
 	// Mar meglevo tombre epiti ra pic8-at, destruktor nem torli:
 	pic8( int xsize, int ysize, unsigned char** ppc );
@@ -66,6 +67,9 @@ public:
 //extern pic8* Pscr8;
 
 class ddpal;
+
+// (port) If set, vizszegmens_look / fuggszegmens_look report what they changed:
+extern void (*Port_lookhook)( int x1, int y1, int x2, int y2 );
 
 unsigned char* spriteadat8( pic8* pmask, unsigned char szin, unsigned short* pspritehossz );
 int pcxtopal( char* nev, unsigned char* pal );

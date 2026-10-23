@@ -64,6 +64,8 @@ public:
 	int billsnap;
 	int billzoomin, billzoomout; // (port) in-game zoom (end of state.dat)
 	int zoomezred; // (port) current in-game zoom x 1000 (end of state.dat)
+	int kepmeretezred; // (port) screen size (Inc. / Dec. Screen Size) x 1000 (end of state.dat)
+	int reszint;       // (port) split screen gap step 0..2 (end of state.dat)
 
 	char editfilenev[20];
 	char playextfilenev[20];

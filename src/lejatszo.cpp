@@ -298,10 +298,17 @@ int Aerintetteviragot = 0;
 
 int Masodikmenet = 0;
 
+// (port) Saves a zoom changed during the play (zoompalyavege in kiraj320.cpp):
+void zoompalyavege( void );
+struct zoomvege_guard {
+	~zoomvege_guard( void ) { zoompalyavege(); }
+};
+
 // Idot adja vissza szazadmasodpercben:
 long lejatszo( char* filenev ) {
 	// (port) Gameplay view and gameplay buttons while this function runs:
 	port_jatek_guard portguard;
+	zoomvege_guard zoomguard; // (port) a changed zoom is saved at the end
 	zoomujpalya( filenev ); // (port) the saved zoom
 	//hiba( "Ezegyhosszusor,szetkellvagnibiztosanhibaEzegy hosszu sor, szet kell vagni biztosan!",
 	//	"Ez egy masik hosszu sor, szet kell vagni biztosan!" );
@@ -406,6 +413,7 @@ long lejatszo( char* filenev ) {
 
 		mv_check( /*"Lej 112"*/ );  // Billentyut itt olvassuk be
 		int hangfuto = 1;
+		port_fizkezd(); // (port) timing overlay
 		while( eddig <= cel-0.000001 ) {
 			if( (hangfuto++)%10 == 0 )
 				hang( /*"hangfuto 10-nel tart"*/ );
@@ -525,6 +533,7 @@ long lejatszo( char* filenev ) {
 
 			eddig += dt;
 		}
+		port_fizvege(); // (port) timing overlay
 
 		// Fogocska elintezes:
 		if( !Single && Tag )
@@ -547,6 +556,14 @@ long lejatszo( char* filenev ) {
 		   kulsoresz( Pmot2, &State->opciok2, &valt2, Prec2,
 					  &Viewtime2, eddig, &valt1.showkep, meghalt2 );
 
+		// (port) The palette before the first frame: each frame gets its colours
+		// when the GPU draws it, so the first frame would have shown the level
+		// in the menu's colours (the PC changed the colours of the screen, so
+		// the original set it after the first frame):
+		if( palmegnincs ) {
+			palmegnincs = 0;
+			Plgr->pal->set();
+		}
 		kirajzol320(
 				eddig,
 				&valt1, &valt2,
@@ -738,6 +755,7 @@ static int Elozoshowkep1 = 1, Elozoshowkep2 = 1;
 long lejatszo_r( char* filenev, int showkepmarad ) {
 	// (port) Gameplay view and gameplay buttons while this function runs:
 	port_jatek_guard portguard;
+	zoomvege_guard zoomguard; // (port) a changed zoom is saved at the end
 	zoomujpalya( filenev ); // (port) the saved zoom
 	Kitoltestmegrak = 3; // kirajz meg 3x kirakja keretet
 
@@ -870,6 +888,14 @@ long lejatszo_r( char* filenev, int showkepmarad ) {
 		}
 
 		// KIRAJZOLAS:
+		// (port) The palette before the first frame: each frame gets its colours
+		// when the GPU draws it, so the first frame would have shown the level
+		// in the menu's colours (the PC changed the colours of the screen, so
+		// the original set it after the first frame):
+		if( palmegnincs ) {
+			palmegnincs = 0;
+			Plgr->pal->set();
+		}
 		kirajzol320(
 				eddig,
 				&valt1, &valt2,

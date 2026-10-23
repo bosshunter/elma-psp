@@ -22,6 +22,9 @@ public:
 // kezdodik. LGR file beolvasas es betolthattereket alatt aktiv:
 int Paratlankepsorok = 0;
 
+// (port) If set, the *_look functions report the area they changed:
+void (*Port_lookhook)( int x1, int y1, int x2, int y2 ) = NULL;
+
 int pic8::lefoglal( long xsizep, long ysizep ) {
 	int i;
     // nem szabad hasznalni size-eket, hanem sizep-eket!
@@ -120,6 +123,7 @@ pic8::pic8( int xsizep, int ysizep ) {
     szegmuttomb = NULL;
     fizkep = 0;
     sprite = NULL;
+    atlatszo = -1; // (port)
     spritehossz = NULL;
     success = lefoglal( xsizep, ysizep );
 }
@@ -132,6 +136,7 @@ pic8::pic8( int xsizep, int ysizep, unsigned char** ppc ) {
     szegmuttomb = NULL;
     fizkep = 0;
     sprite = NULL;
+    atlatszo = -1; // (port)
     spritehossz = NULL;
     if( xsizep == -12333 && ysizep == -12334 ) {
         hiba( "fizkep nemdestruktos pic8 konstruktorban!" );
@@ -152,6 +157,7 @@ pic8::pic8( char* nev, FILE* h ) {
     szegmuttomb = NULL;
     fizkep = 0;
     sprite = NULL;
+    atlatszo = -1; // (port)
     spritehossz = NULL;
 	// Kiterjesztes megkeresese:
     int i = strlen( nev ) - 1;
@@ -320,6 +326,8 @@ void pic8::vizszegmens_look( int x, int y, int size, unsigned char* lookup ) {
 	for( int i = 0; i < size; i++ ) {
 		psor[x+i] = lookup[psor[x+i]];
 	}
+	if( Port_lookhook ) // (port) the timer's area, for the GPU drawing
+		Port_lookhook( x, y, x+size-1, y );
 	//memset( &psor[x], szin, size );
 }
 
@@ -332,6 +340,8 @@ void pic8::fuggszegmens_look( int x, int y, int size, unsigned char* lookup ) {
 		unsigned char* psor = getptr( y+i );
 		psor[x] = lookup[psor[x]];
 	}
+	if( Port_lookhook ) // (port)
+		Port_lookhook( x, y, x, y+size-1 );
 
 	//for( int i = 0; i < size; i++ )
 	//	ppixel( x, y+i, szin );
@@ -517,30 +527,32 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 	for( int y = 0; y < ysize; y++ ) {
 		// Egy sor beolvasasa:
 		short nnn = 0, ccc, iii;
+		unsigned char* sor = getptr( y ); // (port) straight into the row
 
 		do {
-			unsigned char szin;
-			long l = fread( &szin, 1, 1, h );
-			ccc = szin;
-			if( l != 1 )
+			// (port) getc_unlocked: a library call (fread) for each byte made
+			// loading the LGR file take seconds on the PSP
+			int l = getc_unlocked( h );
+			if( l == EOF )
 				hiba( "\nNem tud olvasni PCX-ben", nev );
+			ccc = (short)l;
 
 			if( (ccc & 0xc0) == 0xc0 ) {
 				iii = ccc & (short)0x3f;
-				l = fread( &szin, 1, 1, h );
-				ccc = szin;
-				if( l != 1 )
+				l = getc_unlocked( h );
+				if( l == EOF )
 					hiba( "\nNem tud olvasni PCX-ben", nev );
+				ccc = (short)l;
 
 				while( iii-- ) {
 					if( nnn < xsize )
-						ppixel( nnn, y, (unsigned char)ccc );
+						sor[nnn] = (unsigned char)ccc;
 					nnn++;
 				}
 			}
 			else {
 				if( nnn < xsize )
-					ppixel( nnn, y, (unsigned char)ccc );
+					sor[nnn] = (unsigned char)ccc;
 				nnn++;
 			}
 		} while( nnn < desc.BytesPerScanLine );

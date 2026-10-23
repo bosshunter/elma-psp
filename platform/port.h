@@ -97,4 +97,78 @@ void port_ime_bevitel( const char* cim, const char* kezdo, int maxhossz,
 					   int csakszam, int torlesszam, int torlokod,
 					   int enterrel = 1 );
 
+// Timing overlay (build with -DELMA_PROFILE=ON): the game marks the physics
+// part of each frame, the platform measures the rest:
+#ifdef PORT_PROFIL
+void port_fizkezd( void );
+void port_fizvege( void );
+// Parts of the gameplay drawing: 0 background, 1 foreground, 2 bikes,
+// 3 objects, 4 minimap, 5 timer
+void port_reszkezd( void );
+void port_reszvege( int resz );
+// Pixel loops of the bike drawing (inside part 2):
+void port_pixkezd( void );
+void port_pixvege( void );
+#else
+#define port_pixkezd()
+#define port_pixvege()
+#define port_fizkezd()
+#define port_fizvege()
+#define port_reszkezd()
+#define port_reszvege( resz )
+#endif
+
+// GPU menus (menukep.cpp): instead of composing each frame on the CPU, the
+// menu hands the platform its two background pictures (plain and the "ball"
+// version, both PORT_MENUX x PORT_MENUY), the discs to cut out of them and the
+// helmet sprite; the GPU draws them all. 'verzio' changes whenever the
+// pictures were redrawn, so they are copied to the GPU only then.
+class pic8;
+struct port_korong { float x, y, r; int golyobol; };
+#define PORT_MAXKORONG (96)
+void port_gpumenu( pic8* sima, pic8* golyo, int verzio,
+				   int db, const port_korong* korongok,
+				   pic8* sisak, int sisakx, int sisaky );
+// The menu intro animation (menukep.cpp), for the next port_gpumenu frame:
+// the background's top is at row 'elt' (above it: colour hatterszin); the
+// text picture (szovegatl: its transparent colour; made again when
+// szovegverzio changes) is moved up by elt; the title picture at x, y.
+void port_gpuintro( int elt, int hatterszin, pic8* szoveg, int szovegatl, int szovegverzio,
+					pic8* intro, int introx, int introy );
+void port_gpuintro_vege( void ); // frees the intro's pictures
+// The memory of the two menu pictures (PORT_MENUX x PORT_MENUY, rows one after
+// the other), which the GPU draws from: 0 plain, 1 with the balls' picture.
+unsigned char* port_menukep( int i );
+void port_gpuvar( void ); // waits until the GPU has finished the frame it is drawing
+
+// GPU gameplay drawing (kiraj320.cpp, doboz.cpp, ecset.cpp). The CPU draws
+// the picture as the original did, except for the bikes, which the GPU draws
+// on top of it; a mask (set around the bikes) keeps the foreground, the
+// minimap and the timer in front of them. Coordinates are screen-buffer
+// pixels (x right, y down). For each view, in this order:
+//   port_gpu_nezet, port_gpu_motor + port_gpu_negyszog (the parts of each
+//   bike), port_gpu_maszk,
+//   then port_gpu_jelol / port_gpu_jelolteglalap for what is in front.
+// Nonzero if the GPU draws the bikes (not with cpurajz.inf):
+int  port_gpujatek( void );
+// Nonzero if cpurajz.inf is next to EBOOT.PBP: everything is drawn by the
+// CPU, as in v1.0:
+int  port_cpurajz( void );
+void port_gpu_nezet( int x1, int y1, int x2, int y2 );   // following items are clipped to this view
+void port_gpu_negyszog( const float* xy, const float* uv, // 4 corners: r, r+u, r+v, r+u+v
+						unsigned char* tex, int xsize, int ysize, // 256-wide 8-bit picture
+						unsigned char lyuk );                     // its transparent colour
+// Changes whenever a bike picture (kiskep) is deleted: the GPU's copies of
+// them are made again (a new picture may get the address of an old one):
+extern int Port_kiskepverzio;
+// Makes the GPU's copies of a bike picture in advance (when the LGR file is
+// read), for the palette 'paletta' (256 colours as ddpal keeps them):
+void port_gpukep_elore( unsigned char* tex, int xsize, int ysize, unsigned char lyuk,
+						const void* paletta ); // 256-wide texture
+void port_gpu_motor( void );            // the parts that follow are another bike
+void port_gpu_maszk( void );            // the bikes of the view are done: clears the mask around them
+int  port_gpu_maszksor( int y );        // nonzero if row y has some of the mask
+void port_gpu_jelol( int x, int y, int n ); // n pixels of row y are in front of the bikes
+void port_gpu_jelolteglalap( int x1, int y1, int x2, int y2 ); // a box is in front
+
 #endif

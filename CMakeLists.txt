@@ -45,6 +45,17 @@ target_include_directories(elma PRIVATE compat src platform)
 # Wide level editor: 848x480 (the PSP's shape). OFF gives the classic 640x480
 # editor stretched to the screen:   psp-cmake -DELMA_WIDE_EDITOR=OFF ..
 option(ELMA_WIDE_EDITOR "Level editor on a 480-wide (848x480) screen" ON)
+# Timing overlay (FPS and milliseconds per frame) at the top of the screen:
+#   psp-cmake -DELMA_PROFILE=ON ..
+option(ELMA_PROFILE "On-screen timing overlay" OFF)
+if(ELMA_PROFILE)
+  target_compile_definitions(elma PRIVATE PORT_PROFIL)
+endif()
+# Test mode: a teszt.txt script presses buttons and saves screenshots:
+option(ELMA_TEST "Scripted test mode (teszt.txt)" OFF)
+if(ELMA_TEST)
+  target_compile_definitions(elma PRIVATE PORT_TESZT)
+endif()
 if(ELMA_WIDE_EDITOR)
   target_compile_definitions(elma PRIVATE PORT_SZELESEDITOR)
 endif()

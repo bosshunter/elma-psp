@@ -78,15 +78,25 @@ stretched to the screen, configure with `psp-cmake -DELMA_WIDE_EDITOR=OFF ..`.
 - **Gameplay** is drawn at **752x426** and scaled down to 480x272, so the
   view is zoomed out (about 1.57x) and the bike no longer fills most of the
   small screen. This works for single player and split screen.
+- **60 fps:** gameplay runs at 60 frames a second in single player, zoomed
+  out and in split screen, and so do the menus and the intro. The level
+  picture is still drawn by the CPU as in the original, straight into video
+  memory; the PSP's GPU scales it to the screen and draws the bikes (from
+  pre-shrunk copies of their pictures, smoothed), the menus and the intro.
+  The CPU and the GPU work at the same time, and a finished frame is shown at
+  the next screen refresh. To go back to the CPU drawing of v1.0 (for comparing,
+  or if something looks wrong), put an empty file named `cpurajz.inf` in `ms0:/PSP/GAME/ELMA/`.
 - **Zoom:** hold **R** to zoom in and **L** to zoom out while playing or
   watching a replay (in split screen too). The zoom stays as you leave it, from
-  level to level, and is saved in `state.dat`, so it is the same the next time
-  you start the game.
+  level to level, and is saved in `state.dat` when you leave a level, so it is
+  the same the next time you start the game.
 - **Inc. / Dec. Screen Size** are not assigned by default (Options →
   Customize controls). They shrink or enlarge the view as in the original,
   and in split screen there are two extra steps above full size: the default
   is a thin gap between the two views; Inc. at full size removes the gap, and
   Dec. widens it back to the original gap before the views start to shrink.
+  The screen size and the gap are saved in `state.dat` and loaded at
+  start-up.
 - **Menus** use the full 480-pixel width: they are drawn on an 848x480 screen
   (the PSP's shape at 480 lines) and scaled down to 480x272 with smoothing.
   The original 640x480 layout sits in the middle and the background, the
@@ -123,9 +133,12 @@ stretched to the screen, configure with `psp-cmake -DELMA_WIDE_EDITOR=OFF ..`.
 | L (hold) | Zoom out | `-` |
 | R (hold) | Zoom in | `=` |
 | Start | Default zoom | Enter |
-| Triangle | Screenshot | I |
+| (not assigned) | Screenshot | I |
 
 The left analog stick does the same as the D-Pad, in game as in the menus.
+
+Make a Screenshot is not assigned by default (it was Triangle up to v1.0);
+it can be set in Options → Customize controls.
 
 Esc is split on purpose: Circle in menus, Select in game, because Circle turns
 the bike around.
@@ -155,8 +168,10 @@ Cross on the other corner. (Two separate clicks still work too.)
 
 **Saving.** `state.dat` (players, options, controls, best times, progress) is
 written when you leave the Options menu, after each finished level, when you
-quit from the menu, and also when you quit with the HOME button. The PSP's
-extra settings (the Zoom In / Zoom Out keys and the current zoom) are stored
+quit from the menu, and also when you quit with the HOME button; a changed
+zoom or screen size is also saved when you leave a level. The PSP's
+extra settings (the Zoom In / Zoom Out keys, the current zoom and the screen
+size) are stored
 after the PC data at the end of `state.dat`, so the PC game can still read
 the file; if the PC game saves it, those go back to their defaults.
 
@@ -184,13 +199,23 @@ the file; if the PC game saves it, those go back to their defaults.
   HOME.
 - Fixed: the demo could freeze, and the intro did not slide up on the first
   start.
+- The GPU draws the bikes, the menus and the intro, and the game runs at 60
+  fps (single player, zoomed out and split screen). The bikes are smoother.
+- The level graphics (`.lgr`) are read faster and the default one is loaded
+  during the intro picture, so the first level no longer pauses for about two
+  seconds.
+- Split-screen timers are bigger and easier to read.
+- The screen size (Inc. / Dec. Screen Size) is saved in `state.dat` and
+  loaded at start-up.
+- The menu helmet glides to the selected entry (the PSP screen left a faint
+  trail when it jumped).
 
 ## Source layout
 
 | Path | Contents |
 |---|---|
 | `src/` | The original source with lowercase file names, forward-slash includes and the changes above |
-| `platform/` | New PSP platform layer. `psp_platform.cpp` covers video (sceGu, 8-bit CLUT texture), input, mouse emulation, timer, sound output (sceAudio), the on-screen keyboard, the HOME exit callback and `main()`. `psp_hhigh.cpp` is the original sound mixer |
+| `platform/` | New PSP platform layer. `psp_platform.cpp` covers video (sceGu: the 8-bit picture as a CLUT texture, the GPU-drawn bikes, menus and intro, frame display), input, mouse emulation, timer, sound output (sceAudio), the on-screen keyboard, the HOME exit callback and `main()`. `psp_hhigh.cpp` is the original sound mixer |
 | `compat/` | Small shims for Watcom/MSVC runtime functions and DOS-style paths |
 | `build_units.txt` | The files that make up the game (the Windows build without its DOS/Windows platform code and stale copies) |
 | `psp_assets/` | XMB icon (`ICON0.PNG`) and background (`PIC1.PNG`) |
@@ -204,8 +229,9 @@ the file; if the PC game saves it, those go back to their defaults.
   automatically. Putting an empty file called `nemmem.inf` next to
   `EBOOT.PBP` skips the startup check.
 - **Speed:** the PSP CPU has no hardware double-precision floating point, and
-  the game's physics uses doubles, so they run in software. The CPU is set to
-  333 MHz.
+  the game's physics uses doubles, so they run in software (the bike drawing
+  uses single precision). The CPU is set to 333 MHz. The 60 fps were
+  measured on the internal levels.
 - **Replays recorded on PC may play back differently.** The original ran its
   physics on the x87 FPU (80-bit) and the PSP uses 64-bit doubles. Replays
   recorded on the PSP play back correctly on the PSP.
